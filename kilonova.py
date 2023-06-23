@@ -11,9 +11,15 @@ import logging
 IMAGE = "docker.io/library/busybox:1.36.0"
 
 def engine_installed(engine):
+    """
+        Check whether the specified engine is installed.
+    """
     return shutil.which(engine) is not None
 
 def volume_exists(engine, volume):
+    """
+        Check whether a volume exists.
+    """
     if engine == "docker":
         command = [
             "docker",

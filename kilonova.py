@@ -160,7 +160,7 @@ def clone(arguments):
             IMAGE,
             "sh",
             "-c",
-            "'cp -rfv /in/* /out'"
+            "'cp -rfvp /in/* /out'"
     ]
     shell = " ".join(command)
 

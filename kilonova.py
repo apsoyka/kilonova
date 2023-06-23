@@ -211,8 +211,8 @@ def main():
     parser_restore.set_defaults(func = restore)
 
     parser_clone = subparsers.add_parser("clone")
-    parser_restore.add_argument("source", help = "the volume containing data to be transfered")
-    parser_restore.add_argument("target", help = "the volume to transfer data into")
+    parser_clone.add_argument("source", help = "the volume containing data to be transfered")
+    parser_clone.add_argument("target", help = "the volume to transfer data into")
     parser_clone.set_defaults(func = clone)
 
     arguments = parser.parse_args()

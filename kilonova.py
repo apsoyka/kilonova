@@ -10,6 +10,37 @@ import logging
 
 IMAGE = "docker.io/library/busybox:1.36.0"
 
+def volume_empty(engine, volume):
+    """
+        Check whether a volume is empty.
+    """
+    directory = "/volume"
+
+    command = [
+        engine,
+        "run",
+        "--rm",
+        "-it",
+        "--mount",
+        f"type=volume,source={volume},target={directory}",
+        IMAGE,
+        "ls",
+        "-A",
+        directory
+    ]
+
+    shell = " ".join(command)
+
+    logging.debug(shell)
+
+    result = subprocess.run(shell, shell = True, capture_output = True, text = True)
+
+    if result.returncode != 0:
+        logging.error(f"Failed to check if volume is empty: {result.stderr or result.stdout}")
+        sys.exit(1)
+
+    return result.stdout == ""
+
 def engine_installed(engine):
     """
         Check whether the specified engine is installed.
@@ -24,15 +55,22 @@ def volume_exists(engine, volume):
         command = [
             "docker",
             "volume",
-            "ls",
-            "-f",
-            f"name={volume}"
+            "ls"
         ]
 
-        result = subprocess.run(command, capture_output = True, text = True)
+        shell = " ".join(command)
+
+        logging.debug(shell)
+
+        result = subprocess.run(shell, shell = True, capture_output = True, text = True)
+        output = result.stdout
+
+        if result.returncode != 0:
+            logging.error(f"Failed to check for volume existence: {output}")
+            exit(1)
 
         # Get only the volume name column lines
-        lines = [column.split()[1] for column in result.stdout.splitlines()]
+        lines = [column.split()[1] for column in output.splitlines()]
 
         return volume in lines
     else:
@@ -43,9 +81,20 @@ def volume_exists(engine, volume):
             volume
         ]
 
-        result = subprocess.run(command)
+        shell = " ".join(command)
 
-        return result.returncode == 0
+        logging.debug(shell)
+
+        result = subprocess.run(shell, shell = True)
+        output = result.stdout
+
+        if result.returncode == 0:
+            return True
+        elif output != "":
+            return False
+        else:
+            logging.error(f"Failed to check for volume existence: {output}")
+            exit(1)
 
 def backup(arguments):
     """
@@ -55,28 +104,39 @@ def backup(arguments):
     engine = arguments.engine
     volume = arguments.volume
     output = arguments.output
+    source_directory = "/in"
+    target_directory = "/out"
 
     if not volume_exists(engine, volume):
         logging.error("Cannot backup data from a volume that does not exist")
         sys.exit(1)
 
+    if volume_empty(engine, volume):
+        logging.error("Cannot backup data from an empty volume")
+        sys.exit(1)
+
     with tempfile.TemporaryDirectory() as directory:
-        filename = f"{volume}.tar.gz"
         command = [
             engine,
             "run",
             "--rm",
             "-it",
-            "-v",
-            f"{volume}:/in:z",
-            "-v",
-            f"{directory}:/out:z",
+            "--mount",
+            f"type=volume,source={volume},target={source_directory}",
+            "--mount",
+            f"type=bind,source={directory},target={target_directory}",
             IMAGE,
-            "sh",
-            "-c",
-            f"'cd /in && tar vacf /out/{filename} .'"
+            "tar",
+            "vacf",
+            f"{target_directory}/{output}",
+            "-C",
+            source_directory,
+            "."
         ]
+
         shell = " ".join(command)
+
+        logging.debug(shell)
 
         result = subprocess.run(shell, shell = True)
 
@@ -84,14 +144,14 @@ def backup(arguments):
             logging.error("Failed to backup a volume")
             sys.exit(1)
 
-        source = pathlib.Path(directory, filename).resolve()
+        source = pathlib.Path(directory, output).resolve()
         target = pathlib.Path(output).resolve()
 
         # Move the temporary file to the user-specified location.
         shutil.move(source, target)
 
-        logging.debug(f"{source} -> {target}")
-        logging.info(f"Finished backing up {volume} to {filename}")
+        logging.debug(f"Moved {source} -> {target}")
+        logging.info(f"Finished backing up {volume} to {target}")
 
 def restore(arguments):
     """
@@ -106,36 +166,47 @@ def restore(arguments):
         logging.error("Cannot restore data to a volume that does not exist")
         sys.exit(1)
 
-    path = pathlib.Path(input).resolve()
-
-    if not path.exists():
-        logging.error(f"The file at {path} does not exist")
+    if not volume_empty(engine, volume):
+        logging.error("Cannot restore data to a volume that is not empty")
         sys.exit(1)
 
-    filename = path.name
+    input_path = pathlib.Path(input).resolve()
+
+    if not input_path.exists():
+        logging.error(f"{input_path} does not exist")
+        sys.exit(1)
+
+    source = f"/in/{input_path.name}"
+    target = "/out"
+
     command = [
             engine,
             "run",
             "--rm",
             "-it",
-            "-v",
-            f"{path}:/in/{filename}:z",
-            "-v",
-            f"{volume}:/out:z",
+            "--mount",
+            f"type=bind,source={input_path},target={source}",
+            "--mount",
+            f"type=volume,source={volume},target={target}",
             IMAGE,
-            "sh",
-            "-c",
-            f"'cd /out && tar vxf /in/{filename}'"
+            "tar",
+            "vxf",
+            source,
+            "-C",
+            target
     ]
+
     shell = " ".join(command)
+
+    logging.debug(shell)
 
     result = subprocess.run(shell, shell = True)
 
     if result.returncode != 0:
-        logging.error("Failed to restore a volume")
+        logging.error(f"Failed to restore a volume")
         sys.exit(1)
 
-    logging.info(f"Finished restoring {volume} from {filename}")
+    logging.info(f"Finished restoring {volume} from {input_path}")
 
 def clone(arguments):
     """
@@ -145,13 +216,23 @@ def clone(arguments):
     engine = arguments.engine
     source = arguments.source
     target = arguments.target
+    source_directory = "/in"
+    target_directory = "/out"
 
     if not volume_exists(engine, source):
         logging.error("The source volume does not exist")
         sys.exit(1)
 
+    if volume_empty(engine, source):
+        logging.error("The source volume can not be empty")
+        sys.exit(1)
+
     if not volume_exists(engine, target):
         logging.error("The target volume does not exist")
+        sys.exit(1)
+
+    if not volume_empty(engine, target):
+        logging.error("The target volume must be empty")
         sys.exit(1)
 
     command = [
@@ -159,21 +240,25 @@ def clone(arguments):
             "run",
             "--rm",
             "-it",
-            "-v",
-            f"{source}:/in/:z",
-            "-v",
-            f"{target}:/out:z",
+            "--mount",
+            f"type=volume,source={source},target={source_directory}",
+            "--mount",
+            f"type=volume,source={target},target={target_directory}",
             IMAGE,
-            "sh",
-            "-c",
-            "'cp -rfvp /in/* /out'"
+            "cp",
+            "-rfvp",
+            f"{source_directory}/.",
+            target_directory
     ]
+
     shell = " ".join(command)
+
+    logging.debug(shell)
 
     result = subprocess.run(shell, shell = True)
 
     if result.returncode != 0:
-        logging.error("Failed to clone a volume")
+        logging.error(f"Failed to clone a volume")
         sys.exit(1)
 
     logging.info(f"Finished cloning from {source} to {target}")

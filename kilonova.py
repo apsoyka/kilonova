@@ -270,6 +270,43 @@ def clone(arguments):
 
     logging.info(f"Finished cloning from {source} to {target}")
 
+def list(arguments):
+    """
+        List the contents of a volume.
+    """
+
+    engine = arguments.engine
+    volume = arguments.volume
+    directory = "/volume"
+
+    if not volume_exists(engine, volume):
+        logging.error("The source volume does not exist")
+        sys.exit(1)
+
+    else:
+        command = [
+            engine,
+            "run",
+            "--rm",
+            "-it",
+            "--mount",
+            f"type=volume,source={volume},target={directory}",
+            IMAGE,
+            "tree",
+            "-a",
+            directory
+        ]
+
+        shell = " ".join(command)
+
+        logging.debug(shell)
+
+        result = subprocess.run(shell, shell = True)
+
+        if result.returncode != 0:
+            logging.error(f"Failed to list the contents of {volume}")
+            sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser("Kilonova")
 
@@ -312,6 +349,10 @@ def main():
     parser_clone.add_argument("source", help = "the volume containing data to be transfered")
     parser_clone.add_argument("target", help = "the volume to transfer data into")
     parser_clone.set_defaults(func = clone)
+
+    parser_list = subparsers.add_parser("list")
+    parser_list.add_argument("volume", help = "the volume whose contents should be listed")
+    parser_list.set_defaults(func = list)
 
     arguments = parser.parse_args()
 

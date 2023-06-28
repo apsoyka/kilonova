@@ -104,8 +104,12 @@ def backup(arguments):
     engine = arguments.engine
     volume = arguments.volume
     output = arguments.output
+    quiet = arguments.quiet
+    options = "acf" if quiet else "vacf"
     source_directory = "/in"
     target_directory = "/out"
+    target = pathlib.Path(output).resolve()
+    filename = target.name
 
     if not volume_exists(engine, volume):
         logging.error("Cannot backup data from a volume that does not exist")
@@ -115,7 +119,7 @@ def backup(arguments):
         logging.error("Cannot backup data from an empty volume")
         sys.exit(1)
 
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory() as temp_directory:
         command = [
             engine,
             "run",
@@ -124,11 +128,11 @@ def backup(arguments):
             "--mount",
             f"type=volume,source={volume},target={source_directory}",
             "--mount",
-            f"type=bind,source={directory},target={target_directory}",
+            f"type=bind,source={temp_directory},target={target_directory}",
             IMAGE,
             "tar",
-            "vacf",
-            f"{target_directory}/{output}",
+            options,
+            f"{target_directory}/{filename}",
             "-C",
             source_directory,
             "."
@@ -144,13 +148,12 @@ def backup(arguments):
             logging.error("Failed to backup a volume")
             sys.exit(1)
 
-        source = pathlib.Path(directory, output).resolve()
-        target = pathlib.Path(output).resolve()
+        source = pathlib.Path(temp_directory, filename).resolve()
 
         # Move the temporary file to the user-specified location.
         shutil.move(source, target)
 
-        logging.debug(f"Moved {source} -> {target}")
+        logging.debug(f"{source} -> {target}")
         logging.info(f"Finished backing up {volume} to {target}")
 
 def restore(arguments):
@@ -161,6 +164,8 @@ def restore(arguments):
     engine = arguments.engine
     input = arguments.input
     volume = arguments.volume
+    quiet = arguments.quiet
+    options = "xf" if quiet else "vxf"
 
     if not volume_exists(engine, volume):
         logging.error("Cannot restore data to a volume that does not exist")
@@ -190,7 +195,7 @@ def restore(arguments):
             f"type=volume,source={volume},target={target}",
             IMAGE,
             "tar",
-            "vxf",
+            options,
             source,
             "-C",
             target
@@ -216,6 +221,8 @@ def clone(arguments):
     engine = arguments.engine
     source = arguments.source
     target = arguments.target
+    quiet = arguments.quiet
+    options = "-rfp" if quiet else "-rfvp"
     source_directory = "/in"
     target_directory = "/out"
 
@@ -246,7 +253,7 @@ def clone(arguments):
             f"type=volume,source={target},target={target_directory}",
             IMAGE,
             "cp",
-            "-rfvp",
+            options,
             f"{source_directory}/.",
             target_directory
     ]

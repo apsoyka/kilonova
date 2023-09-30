@@ -120,6 +120,11 @@ def backup(arguments):
         sys.exit(1)
 
     with tempfile.TemporaryDirectory() as temp_directory:
+        if engine == "podman":
+            bind_mount = f"type=bind,source={temp_directory},target={target_directory},relabel=private"
+        else:
+            bind_mount = f"type=bind,source={temp_directory},target={target_directory}"
+            
         command = [
             engine,
             "run",
@@ -128,7 +133,7 @@ def backup(arguments):
             "--mount",
             f"type=volume,source={volume},target={source_directory}",
             "--mount",
-            f"type=bind,source={temp_directory},target={target_directory},relabel=private",
+            bind_mount,
             IMAGE,
             "tar",
             options,
@@ -184,13 +189,18 @@ def restore(arguments):
     source = f"/in/{input_path.name}"
     target = "/out"
 
+    if engine == "podman":
+        bind_mount = f"type=bind,source={input_path},target={source},relabel=private"
+    else:
+        bind_mount = f"type=bind,source={input_path},target={source}"
+
     command = [
             engine,
             "run",
             "--rm",
             "-it",
             "--mount",
-            f"type=bind,source={input_path},target={source},relabel=private",
+            bind_mount,
             "--mount",
             f"type=volume,source={volume},target={target}",
             IMAGE,
